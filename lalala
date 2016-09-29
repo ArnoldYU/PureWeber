@@ -1,0 +1,301 @@
+Struts2 框架下的web开发和一些思考
+
+Struts2是一个基于MVC设计模式的Web应用框架，它本质上相当于一个servlet，在MVC设计模式中，Struts2作为控制器(Controller)来建立模型与视图的数据交互
+
+<filter>
+  	<filter-name>struts2</filter-name>
+  	<filter-class>org.apache.struts2.dispatcher.ng.filter.StrutsPrepareAndExecuteFilter</filter-class>
+</fllter>
+
+
+  </filter>
+  <filter-mapping>
+    <filter-name>struts2</filter-name>
+    <url-pattern>/*</url-pattern>
+  </filter-mapping>`
+让struts 2的核心FIlter拦截所有用户请求
+
+<package name="default" namespace="/" extends="struts-default">
+	在这里面写各种action  所有的struts配置，都要放在package元素中，而且包必须继承struts-default struts-default包中定义结果类型和拦截器.  
+</package>
+
+package提供了将多个Action组织为一个模块的方式    
+        package的名字必须是唯一的 package可以扩展 当一个package扩展自另一个package时该package会在本身配置的基础上加入扩展的package的配置 父package必须在子package前配置    
+       	name：package名称    
+        extends:继承的父package名称    
+        abstract:设置package的属性为抽象的 抽象的package不能定义action 值true:false   
+         namespace:定义package命名空间 该命名空间影响到url的地址，例如此命名空间为/test那么访问是的地址为http://localhost:8080/struts2/test/XX.action   
+总之，一个struts.xml中 package可以有多个
+
+MVC M-model V-view C-control
+
+struts2对action并没有多少要求，只要求：
+1-	推荐实现Action接口，要么继承ActionSupport接口
+a)	ActionSupport本身就实现Action接口
+2-	为每个请求参数都提供Field，并为之提供相应的setter和getter方法
+3-	提供一个无参数，返回值类型为String的execute()方法，改方法负责处理用户请求
+
+
+action元素要有如下常用属性：
+name：指定该Action处理哪个请求
+class：指定该Action对应的处理类。默认值：<default-class-ref…/>元素指定了Action默认的处理类。
+method：指定使用Action的哪儿个方法来处理用户请求。默认值为execute。
+
+并处理返回的字符串，指定相应的物理视图
+
+
+
+
+
+
+1-	发送请求，发送一个filter
+struts2 开始的时候，核心是FilterDispatcher 现在新核心名字是StrutsPrepareAndExecuteFilter
+
+
+把原来的控制住拆成了一个核心控制器，一个action模块
+核心控制器拦截到请求，调用execute（）方法或者别的 
+action创建业务逻辑组件，调用业务逻辑组件里的方法。业务逻辑组件返回一个方法给action，最后action返回一个处理结果（都是字符串类型）给核心控制器
+核心控制器根据处理结果
+
+
+
+用了struts2之后，底层运行原理
+（1）	浏览器发送请求：abc.action .action可以保留也可以省略（主要是/*）
+（2）	浏览器发送的请求被strutsPrepareAndExecuteFilter拦截。
+   a)	因为我们在web.xml中指定strutsPrepareAndExecuteFilter来过滤所有的请求 
+（3）	strutsPrepareAndExecuteFilter会去创建action实例，假如请求的是abc.action，他会搜索struts.xml中name为abc的action 的配置，找不到的话会报错。找到后通过action中class属性使用反射创建action的实例
+（4）	调用 
+     Enumeration<String> em = request.getParameterNames() --返回所有请求的参数名  Enumeration可以理解为一个集合
+
+     使用循环（String paramName ：paramMap.keySet()） --把所有请求参数都处理一遍
+     {
+     	Action类.getMethod("set"+paraName的首字母大写) //得到请求参数对应的get方法
+     	//得到请求参数对应的值
+     	String paramValue = paramMap.get(paramName);
+     	setter.invoke(actionInst , paramValue);
+     }
+     **PS 跳到18行代码
+（5）再次通过反射来调用method属性所指定的方法
+	返回一个字符串
+（6）根据struts.xml文件中的<result../>元素的name以及物理视图资源跳转到实际的视图
+
+
+
+
+
+
+
+import java.util.*;
+import java.lang.reflect.*;
+class MyAction
+{
+	private String name;
+	private String pass;
+//name的setter和getter方法
+	public String getName()
+	{
+		return this.name;
+	}
+	public void setName(String name)
+	{
+		this.name=name;
+	}
+//pass的setter和getter方法
+	public String getPass()
+	{
+		return this.pass;
+	}
+	public void setPass(String pass)
+	{
+		this.pass=pass;
+	}
+
+	public String regist()
+	{
+		System.out.println("name-----:"+name);
+		System.out.println("pass-----:"+pass);
+		return "success";
+	}
+}
+
+public class MockFilter
+{
+	/*假设用户请求
+	struts.xml中
+	<action name="abc" class="MyAction" method="regist"/>
+		<result name="success">welcome.jsp</result>
+		<result name="结果名">物理视图</result>
+	</action>
+	*/
+
+
+
+	public static void main(String[] args) //throws Exception
+	{
+		//假设该filter收到abc.action的请求，通过解析struts.xml
+		String clazzProp="MyAction";
+
+		//反射：获取Action类所对应的Class对象
+		Class actionClazz = null;
+		try {
+			actionClazz = Class.forName(clazzProp);
+		} catch (ClassNotFoundException e3) {
+			// TODO Auto-generated catch block
+			e3.printStackTrace();
+		}
+
+		//用反射创建Action的实例
+		Object actionInst = null;
+		try {
+			actionInst = actionClazz.newInstance();
+		} catch (InstantiationException e2) {
+			// TODO Auto-generated catch block
+			e2.printStackTrace();
+		} catch (IllegalAccessException e2) {
+			// TODO Auto-generated catch block
+			e2.printStackTrace();
+		}//要求Action类有无参数的构造器（有的话就会报错）
+
+		//用一个Map来模拟请求参数
+		//Struts 2核心Filter用下面代码
+		//Map<String ,String > paraMap = request.getParameterMap();//应该得到所有请求参数名-参数值 的map 
+
+		//为了效果写的
+		Map<String ,String >paramMap = new HashMap<>();
+		paramMap.put("name","lala");
+		paramMap.put("pass","lala");
+
+		for (String paramName:paramMap.keySet())
+		{
+			//Name 得到请求参数名对应的setter方法 
+			Method setter = null;
+			try {
+				setter = actionClazz.getMethod("set" + paramName.substring(0,1).toUpperCase() 
+						+ paramName.substring(1),String.class);
+			} catch (NoSuchMethodException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			} catch (SecurityException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+			//得到请求参数对应的值
+			String paramValue = paramMap.get(paramName);
+
+			//以action实例为调用者，调用setter方法，把请求参数值作为参数值传入
+			try {
+				setter.invoke(actionInst , paramValue);
+			} catch (IllegalAccessException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (IllegalArgumentException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (InvocationTargetException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	//	action调用的函数不能有形参
+		Method targetMethod = null;
+		try {
+			targetMethod = actionClazz.getMethod("regist");
+		} catch (NoSuchMethodException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (SecurityException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		String result = null;
+		try {
+			result = (String)targetMethod.invoke(actionInst);
+		} catch (IllegalAccessException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (IllegalArgumentException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (InvocationTargetException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		if (result.equals("某个result的name属性值"))
+		{
+			System.out.println("跳到对应的物理视图");
+		}
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+在Action中访问Servelt API
+
+总有些时候，需要访问Servlet API
+比如我们需要把数据存入Session、Application
+	更甚至于我们要添加Cookie，response.addCookie()
+
+
+
+Struts 2提供了两种方式访问Servelt API：
+	伪访问：借助于ActionContext
+	ActionContext,提供了getSession	- 	模拟访问HTTP Session
+					   getApplication	-模拟访问application
+
+ ActionContext actCtx = ActionContext.getContext();
+ 使用一个Map来模拟HTTP Session
+ Map<String , Object> sess = actCtx.getSession();
+ //下面代码，表面上只是想Map存入key-value，但由于该Map模拟HTTP Session
+ //因此下面存入的key-value，实际上会存入HTTP Session中
+ sess.put("userID",id);
+
+
+
+	真访问（比如要添加Cookie).借助于ServletActionContext	
+	ServletActionConetext 提供了如下静态方法
+		- static PageContext getPageContext()
+		- static HttpServletRequest getRequest()
+		- static HttpServletResponse getResponse()
+		- static ServletContext getServletContext()
+
+
+
+
+//此处如果希望，用户登录成功，还要添加Cookie
+//由于添加Cookie必须用HttpServletResponse对象，所以该A餐厅必须与Servlet API整合
+HttpServletResponse response = ServletAcionContext.getResponse();//需要导包
+Cookie cookie = new Cookie("userName",user.getName);
+cookie.setMaxAge(300000);
+//添加Cookie
+response.addCookie(cookie);
+
+
+
+
+struts 2 常量 也叫struts 2属性
+--控制整个struts 2的应用特性
+有三个应用配置
+
+--web.xml中
+<init-param>
+	<param-name>常量名</param-name>
+	<param-value>常量值</param-value>
+</int-param>
+
+--在struts.xml中
+	<constant name="常量名" value="常量值"/> 	--每行配置一个常量
+
+--额外增加一个struts.properties配置文件 跟struts.xml同一目录
+	常量名=常量值	--每行配置一个常量
+
+介绍跟说明http://blog.csdn.net/redarmy_chen/article/details/7342155
